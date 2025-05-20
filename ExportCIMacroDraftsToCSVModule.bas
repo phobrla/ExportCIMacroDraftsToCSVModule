@@ -1,127 +1,129 @@
-Attribute VB_Name = "ExportCIMacroDraftsToCSVModule"
 Sub ExportCIMacroDraftsToCSV()
     Dim ws As Worksheet
     Dim tbl As ListObject
-    Dim rng As Range
-    Dim desc As String, txt As String
-    Dim folder As String
-    Dim filePath As String
+    Dim data As Variant
+    Dim outputData As String
+    Dim specialChars As Object
+    Dim FilePath As String
     Dim timestamp As String
     Dim i As Long
     Dim exportCount As Long
-    Dim category As String
-    Dim subCategory As String
-    Dim specialChars As Object
+    Dim category As String, subCategory As String
+    Dim desc As String, txt As String
+
+    ' Disable screen updating and calculations to improve performance
+    Application.ScreenUpdating = False
+    Application.Calculation = xlCalculationManual
 
     ' Set worksheet and table
     Set ws = ThisWorkbook.Worksheets("CI Macro Drafts")
     Set tbl = ws.ListObjects("CIMacroDrafts")
+    data = tbl.DataBodyRange.Value ' Read all table data into an array
 
-    ' Generate timestamp
+    ' Generate timestamp and set CSV file path
     timestamp = Format(Now, "yyyymmddhhss")
+    FilePath = "C:\Users\phobrla\OneDrive - Carilion\Documents\PhraseExpress\CIMacroDrafts_" & timestamp & ".csv"
 
-    ' Set CSV file path
-    filePath = "C:\Users\phobrla\OneDrive - Carilion\Documents\PhraseExpress\CIMacroDrafts_" & timestamp & ".csv"
-
-    ' Create CSV file
-    Open filePath For Output As #1
-
-    ' Initialize export count
+    ' Initialize variables
+    outputData = ""
     exportCount = 0
 
     ' Initialize dictionary for special characters
     Set specialChars = CreateObject("Scripting.Dictionary")
-    specialChars.Add "ENTER", "{#ENTER}"
-    specialChars.Add "SPACE", "{#SPACE}"
+    specialChars.Add "ENTER_BEFORE", "{#ENTER}"
+    specialChars.Add "ENTER_AFTER", "{#ENTER -variablename New Line}"
     specialChars.Add "TAB", "{#TAB}"
     specialChars.Add "DEL", "{#DEL -count 15}"
     specialChars.Add "SLEEP", "{#sleep 1000}"
-    specialChars.Add "BKSP", "{#BKSP}"
     specialChars.Add "INSERT", "{#insert -id 1F4D85EA-7001-48CF-88F7-F9E7012C27FE -variablename SNOW Acknowledged}"
 
-    ' Loop through table rows
-    For i = 1 To tbl.ListRows.Count
-        Set rng = tbl.ListRows(i).Range
+    ' Cache column indices
+    Dim colNeedsWork As Long, colConfigItem As Long
+    Dim colCategory As Long, colDescription As Long
+    Dim colShortDesc As Long, colExported As Long
+    colNeedsWork = tbl.ListColumns("Needs Work").Index
+    colConfigItem = tbl.ListColumns("SNOW Configuration item").Index
+    colCategory = tbl.ListColumns("SNOW Category and Subcategory").Index
+    colDescription = tbl.ListColumns("SNOW Description").Index
+    colShortDesc = tbl.ListColumns("SNOW Short description").Index
+    colExported = tbl.ListColumns("Exported").Index
 
-        ' Check if any of the required fields are blank
-        If Trim(rng.Cells(1, tbl.ListColumns("SNOW Configuration item").Index).Value) = "" Or _
-           Trim(rng.Cells(1, tbl.ListColumns("SNOW Category and Subcategory").Index).Value) = "" Or _
-           Trim(rng.Cells(1, tbl.ListColumns("SNOW Description").Index).Value) = "" Then
-            ' Skip this row if any required field is blank
-            GoTo NextIteration
-        End If
+    ' Loop through rows in array
+    For i = 1 To UBound(data, 1)
+        ' Skip rows if "Needs Work" is populated or required fields are empty
+        If Trim(data(i, colNeedsWork)) = "" And _
+           Trim(data(i, colConfigItem)) <> "" And _
+           Trim(data(i, colCategory)) <> "" And _
+           Trim(data(i, colDescription)) <> "" Then
 
-        ' Check if "SNOW Short description" is populated
-        If rng.Cells(1, tbl.ListColumns("SNOW Short description").Index).Value <> "" Then
-            desc = rng.Cells(1, tbl.ListColumns("SNOW Configuration item").Index).Value & ": " & rng.Cells(1, tbl.ListColumns("SNOW Short description").Index).Value
-        Else
-            desc = ""
-        End If
-
-        ' Only proceed if Description is not blank
-        If Trim(desc) <> "" Then
-            ' Split "SNOW Category and Subcategory" into category and subcategory
-            If InStr(1, rng.Cells(1, tbl.ListColumns("SNOW Category and Subcategory").Index).Value, ">") > 0 Then
-                category = Trim(Left(rng.Cells(1, tbl.ListColumns("SNOW Category and Subcategory").Index).Value, _
-                InStr(1, rng.Cells(1, tbl.ListColumns("SNOW Category and Subcategory").Index).Value, ">") - 1))
-                subCategory = Trim(Mid(rng.Cells(1, tbl.ListColumns("SNOW Category and Subcategory").Index).Value, _
-                InStr(1, rng.Cells(1, tbl.ListColumns("SNOW Category and Subcategory").Index).Value, ">") + 1))
+            ' Build description
+            If Trim(data(i, colShortDesc)) <> "" Then
+                desc = data(i, colConfigItem) & ": " & data(i, colShortDesc)
             Else
-                category = rng.Cells(1, tbl.ListColumns("SNOW Category and Subcategory").Index).Value
+                desc = ""
+            End If
+
+            ' Split "SNOW Category and Subcategory" into category and subcategory
+            If InStr(1, data(i, colCategory), ">") > 0 Then
+                category = Trim(Left(data(i, colCategory), InStr(1, data(i, colCategory), ">") - 1))
+                subCategory = Trim(Mid(data(i, colCategory), InStr(1, data(i, colCategory), ">") + 1))
+            Else
+                category = data(i, colCategory)
                 subCategory = ""
             End If
 
-            ' Check if "SNOW Configuration item" starts with "ASSET TAG"
-            If Left(rng.Cells(1, tbl.ListColumns("SNOW Configuration item").Index).Value, 9) <> "ASSET TAG" Then
-                txt = rng.Cells(1, tbl.ListColumns("SNOW Configuration item").Index).Value & specialChars("TAB") & specialChars("TAB") & specialChars("TAB") & specialChars("TAB") & _
-                      category & specialChars("SLEEP") & specialChars("TAB") & subCategory & _
-                      specialChars("SLEEP") & specialChars("TAB") & specialChars("TAB") & specialChars("TAB") & specialChars("TAB") & specialChars("TAB") & specialChars("DEL") & "TSG_TSC1" & specialChars("SLEEP") & specialChars("TAB") & "phobrla" & specialChars("SLEEP") & _
-                      specialChars("INSERT") & _
-                      rng.Cells(1, tbl.ListColumns("SNOW Short description").Index).Value & specialChars("TAB") & _
-                      rng.Cells(1, tbl.ListColumns("SNOW Description").Index).Value
-            Else
-                txt = specialChars("SPACE") & specialChars("BKSP") & specialChars("TAB") & specialChars("TAB") & specialChars("TAB") & specialChars("TAB") & specialChars("TAB") & _
-                      category & specialChars("SLEEP") & specialChars("TAB") & subCategory & _
-                      specialChars("SLEEP") & specialChars("TAB") & specialChars("TAB") & specialChars("TAB") & specialChars("TAB") & specialChars("TAB") & specialChars("DEL") & "TSG_TSC1" & specialChars("SLEEP") & specialChars("TAB") & "phobrla" & specialChars("SLEEP") & _
-                      specialChars("INSERT") & _
-                      rng.Cells(1, tbl.ListColumns("SNOW Short description").Index).Value & specialChars("TAB") & _
-                      rng.Cells(1, tbl.ListColumns("SNOW Description").Index).Value
-            End If
+            ' Build txt string to match the requested format
+            txt = data(i, colConfigItem) & _
+                  specialChars("TAB") & specialChars("TAB") & specialChars("TAB") & specialChars("TAB") & specialChars("TAB") & _
+                  category & specialChars("SLEEP") & specialChars("TAB") & subCategory & _
+                  specialChars("SLEEP") & specialChars("TAB") & specialChars("TAB") & specialChars("TAB") & specialChars("TAB") & specialChars("TAB") & _
+                  specialChars("DEL") & "TSG_TSC1" & specialChars("SLEEP") & specialChars("ENTER_BEFORE") & _
+                  specialChars("TAB") & specialChars("TAB") & "Hobrla, Phil (Phil)" & specialChars("ENTER_BEFORE") & _
+                  specialChars("SLEEP") & specialChars("TAB") & specialChars("INSERT") & _
+                  data(i, colShortDesc) & specialChars("TAB") & data(i, colDescription)
 
-            folder = "_SNOW Macros (SERVICES)"
+            ' Replace new lines in description with "{#ENTER -variablename New Line}"
+            desc = Replace(desc, vbLf, specialChars("ENTER_AFTER"))
+            desc = Replace(desc, vbCrLf, specialChars("ENTER_AFTER"))
 
-            ' Replace new lines with "{#ENTER}"
-            desc = Replace(desc, vbLf, specialChars("ENTER"))
-            txt = Replace(txt, vbLf, specialChars("ENTER"))
-            desc = Replace(desc, vbCrLf, specialChars("ENTER"))
-            txt = Replace(txt, vbCrLf, specialChars("ENTER"))
-            desc = Replace(desc, vbCrLf, specialChars("ENTER"))
-            txt = Replace(txt, vbCrLf, specialChars("ENTER"))
+            ' Replace new lines in txt with "{#ENTER_BEFORE}" or "{#ENTER_AFTER}" based on position
+            Dim txtParts() As String
+            txtParts = Split(txt, specialChars("INSERT")) ' Split around INSERT marker
+            txtParts(0) = Replace(txtParts(0), vbLf, specialChars("ENTER_BEFORE"))
+            txtParts(0) = Replace(txtParts(0), vbCrLf, specialChars("ENTER_BEFORE"))
+            txtParts(1) = Replace(txtParts(1), vbLf, specialChars("ENTER_AFTER"))
+            txtParts(1) = Replace(txtParts(1), vbCrLf, specialChars("ENTER_AFTER"))
+            txt = txtParts(0) & specialChars("INSERT") & txtParts(1)
 
-            ' Escape double quotes
+            ' Escape double quotes by doubling them
             desc = Replace(desc, """", """""")
             txt = Replace(txt, """", """""")
 
-            ' Escape commas by enclosing the field in double quotes
-            If InStr(desc, ",") > 0 Then desc = """" & desc & """"
+            ' Enclose txt in quotes only if it contains a comma
             If InStr(txt, ",") > 0 Then txt = """" & txt & """"
 
-            ' Write to CSV file with comma delimiter
-            Print #1, desc & "," & txt & "," & folder
+            ' Append to output data
+            If outputData <> "" Then outputData = outputData & vbCrLf ' Add newline only between rows
+            outputData = outputData & desc & "," & txt & "," & "_SNOW Macros (SERVICES)"
 
-            ' Mark as Exported
-            rng.Cells(1, tbl.ListColumns("Exported").Index).Value = "Yes"
-            ' Increment export count
+            ' Mark as exported
+            data(i, colExported) = "Yes"
             exportCount = exportCount + 1
         End If
-
-NextIteration:
     Next i
 
-    ' Close CSV file
+    ' Write all data to CSV file
+    Open FilePath For Output As #1
+    Print #1, outputData
     Close #1
 
-    MsgBox "CSV file created successfully with " & exportCount & " rows exported: " & filePath
+    ' Write updated data back to the worksheet
+    tbl.DataBodyRange.Value = data
 
+    ' Restore Excel settings
+    Application.ScreenUpdating = True
+    Application.Calculation = xlCalculationAutomatic
+
+    ' Notify user
+    MsgBox "CSV file created successfully with " & exportCount & " rows exported: " & FilePath
 End Sub
-
